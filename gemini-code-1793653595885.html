@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>سجل متابعة طلبات التأمين - KSAMC</title>
+
+  <!-- خط Cairo -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Font Awesome & Tailwind CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Cairo', 'sans-serif'] },
+          colors: {
+            brand: { 50: '#eef2ff', 600: '#4f46e5', 700: '#4338ca' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    .ltr-text { direction: ltr; display: inline-block; unicode-bidi: embed; }
+    .custom-scroll::-webkit-scrollbar { width: 5px; height: 5px; }
+    .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans min-h-screen flex flex-col pb-16">
+
+  <!-- ================= الإعدادات ================= -->
+  <script>
+    const CONFIG = {
+      SPREADSHEET_ID: '135L6yG_lk5HPj77mZbUqv3-oZNWWd4T5N6yR6hX3Wk0',
+      SHEET_NAME: 'Sheet1', // اسم ورقة العمل
+      SHEET_GID: '0'
+    };
+  </script>
+
+  <!-- الشريط العلوي -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
+    <div class="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-brand-600 flex items-center justify-center text-white shadow-md shadow-brand-600/20">
+          <i class="fa-solid fa-hospital-user text-lg"></i>
+        </div>
+        <div>
+          <h1 class="font-bold text-base sm:text-lg leading-tight">سجل طلبات التأمين</h1>
+          <p class="text-xs text-slate-400 font-medium">مدينة الملك سلمان الطبية (KSAMC)</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <button onclick="fetchSheetData()" id="refreshBtn" class="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition" title="تحديث البيانات">
+          <i class="fa-solid fa-arrows-rotate"></i>
+        </button>
+        <button onclick="openModal()" class="bg-brand-600 hover:bg-brand-700 text-white text-xs sm:text-sm font-bold px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition active:scale-95 shadow-xs">
+          <i class="fa-solid fa-plus text-xs"></i>
+          <span>إضافة طلب</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- المحتوى الرئيسي -->
+  <main class="max-w-5xl w-full mx-auto px-4 py-5 flex-1 flex flex-col gap-4">
+
+    <!-- كروت الإحصائيات -->
+    <div class="grid grid-cols-3 gap-2 sm:gap-4">
+      <div class="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-xs">
+        <div class="text-[11px] sm:text-xs text-slate-400 font-bold mb-0.5">إجمالي الطلبات</div>
+        <div id="statTotal" class="text-xl sm:text-2xl font-black text-slate-800">0</div>
+      </div>
+      <div class="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-xs">
+        <div class="text-[11px] sm:text-xs text-amber-600 font-bold mb-0.5">تحت الإجراء</div>
+        <div id="statPending" class="text-xl sm:text-2xl font-black text-amber-600">0</div>
+      </div>
+      <div class="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-xs">
+        <div class="text-[11px] sm:text-xs text-emerald-600 font-bold mb-0.5">تم الإنجاز</div>
+        <div id="statDone" class="text-xl sm:text-2xl font-black text-emerald-600">0</div>
+      </div>
+    </div>
+
+    <!-- شريط البحث -->
+    <div class="relative">
+      <i class="fa-solid fa-magnifying-glass absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+      <input type="text" id="searchInput" oninput="filterRequests()" placeholder="ابحث باسم المريض، رقم الملف الطبي MRN، أو الجوال..." class="w-full bg-white pr-10 pl-4 py-2.5 text-sm rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-600/20 focus:border-brand-600 shadow-xs">
+    </div>
+
+    <!-- حالة التحميل -->
+    <div id="loadingState" class="text-center py-12">
+      <i class="fa-solid fa-circle-notch animate-spin text-2xl text-brand-600 mb-2"></i>
+      <p class="text-xs font-bold text-slate-400">جارٍ قراءة سجل التأمين من الشيت...</p>
+    </div>
+
+    <!-- عرض السجلات (قائمة البطاقات) -->
+    <div id="cardsList" class="space-y-3 hidden"></div>
+
+    <!-- عند عدم وجود بيانات -->
+    <div id="noDataState" class="hidden text-center py-12 bg-white rounded-xl border border-dashed border-slate-200">
+      <i class="fa-solid fa-folder-open text-2xl text-slate-300 mb-2"></i>
+      <p class="text-xs font-bold text-slate-500">لا توجد طلبات مطابقة</p>
+    </div>
+
+  </main>
+
+  <!-- نافذة إضافة طلب جديد (Modal) -->
+  <div id="entryModal" class="fixed inset-0 z-50 hidden">
+    <div onclick="closeModal()" class="absolute inset-0 bg-slate-900/40 backdrop-blur-xs"></div>
+    <div class="fixed inset-0 flex items-center justify-center p-4">
+      <div class="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden">
+        <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+          <h3 class="font-bold text-sm sm:text-base">إضافة طلب تأمين يدوي</h3>
+          <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600 p-1"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <form id="newRequestForm" onsubmit="handleNewRequest(event)" class="p-4 space-y-3">
+          <div>
+            <label class="block text-xs font-bold text-slate-600 mb-1">اسم المريض *</label>
+            <input type="text" id="mName" required placeholder="الاسم الثلاثي أو الرباعي" class="w-full px-3 py-2 text-sm bg-slate-50 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-600">
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">رقم الملف (MRN)</label>
+              <input type="text" id="mMrn" placeholder="مثال: 104523" class="w-full px-3 py-2 text-sm bg-slate-50 rounded-lg border border-slate-200 ltr-text text-right focus:outline-none focus:border-brand-600">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">رقم الجوال</label>
+              <input type="text" id="mPhone" placeholder="05XXXXXXXX" class="w-full px-3 py-2 text-sm bg-slate-50 rounded-lg border border-slate-200 ltr-text text-right focus:outline-none focus:border-brand-600">
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-600 mb-1">المستندات المطلوبة</label>
+            <input type="text" id="mDocs" placeholder="تقرير طبي، صورة بطاقة التأمين..." class="w-full px-3 py-2 text-sm bg-slate-50 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-600">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-600 mb-1">الحالة</label>
+            <select id="mStatus" class="w-full px-3 py-2 text-sm bg-slate-50 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-600">
+              <option value="تحت الإجراء">تحت الإجراء</option>
+              <option value="تم الإنجاز">تم الإنجاز</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-600 mb-1">ملاحظات</label>
+            <textarea id="mNotes" rows="2" placeholder="أي ملاحظات إضافية..." class="w-full px-3 py-2 text-sm bg-slate-50 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-600"></textarea>
+          </div>
+          <div class="pt-2 flex justify-end gap-2">
+            <button type="button" onclick="closeModal()" class="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-lg">إلغاء</button>
+            <button type="submit" class="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold rounded-lg shadow-xs">
+              إضافة إلى الشاشة
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- التنبيهات المنبثقة -->
+  <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 hidden px-4 py-2 bg-slate-900 text-white text-xs font-bold rounded-xl shadow-lg transition-all duration-300"></div>
+
+  <!-- ================= جافاسكربت ================= -->
+  <script>
+    let records = [];
+
+    document.addEventListener('DOMContentLoaded', () => {
+      fetchSheetData();
+    });
+
+    // جلب البيانات من Google Sheets مباشرة بصيغة CSV
+    async function fetchSheetData() {
+      const refreshBtn = document.getElementById('refreshBtn');
+      refreshBtn.classList.add('animate-spin');
+      document.getElementById('loadingState').classList.remove('hidden');
+      document.getElementById('cardsList').classList.add('hidden');
+      document.getElementById('noDataState').classList.add('hidden');
+
+      const url = `https://docs.google.com/spreadsheets/d/${CONFIG.SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(CONFIG.SHEET_NAME)}`;
+
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('فشل جلب الملف');
+        const csvText = await res.text();
+        parseCSV(csvText);
+      } catch (err) {
+        console.error('خطأ في القراءة:', err);
+        // تجربة رابط التصدير المباشر كبديل
+        try {
+          const altUrl = `https://docs.google.com/spreadsheets/d/${CONFIG.SPREADSHEET_ID}/export?format=csv&gid=${CONFIG.SHEET_GID}`;
+          const altRes = await fetch(altUrl);
+          const altText = await altRes.text();
+          parseCSV(altText);
+        } catch (e) {
+          showToast('تعذر الاتصال بالشيت. تأكد من إعداد المشاركة: أي شخص لديه الرابط يمكنه العرض.');
+          document.getElementById('loadingState').classList.add('hidden');
+        }
+      } finally {
+        setTimeout(() => refreshBtn.classList.remove('animate-spin'), 500);
+      }
+    }
+
+    // تحليل CSV واكتشاف أسماء الأعمدة ديناميكياً
+    function parseCSV(csvText) {
+      Papa.parse(csvText, {
+        header: true,
+        skipEmptyLines: true,
+        complete: function(results) {
+          document.getElementById('loadingState').classList.add('hidden');
+          const headers = results.meta.fields || [];
+          const colMap = detectColumns(headers);
+
+          const sheetData = results.data.map(row => {
+            const rawStatus = (row[colMap.status] || 'تحت الإجراء').trim();
+            const isDone = rawStatus.includes('إنجاز') || rawStatus.includes('انجاز') || rawStatus.toLowerCase().includes('done');
+            return {
+              name: (row[colMap.name] || '').trim(),
+              mrn: (row[colMap.mrn] || '').trim(),
+              phone: (row[colMap.phone] || '').trim(),
+              docs: (row[colMap.docs] || '').trim(),
+              status: isDone ? 'تم الإنجاز' : 'تحت الإجراء',
+              notes: (row[colMap.notes] || '').trim()
+            };
+          }).filter(r => r.name || r.mrn);
+
+          // دمج السجلات المحلية المضافة يدوياً
+          const localSaved = JSON.parse(localStorage.getItem('local_ksamc_records') || '[]');
+          records = [...localSaved, ...sheetData.reverse()];
+
+          updateStats();
+          renderCards(records);
+        }
+      });
+    }
+
+    function detectColumns(headers) {
+      const map = { name: '', mrn: '', phone: '', docs: '', status: '', notes: '' };
+      headers.forEach(h => {
+        const s = h.replace(/[إأآا]/g, 'ا').toLowerCase();
+        if (!map.name && (s.includes('اسم') || s.includes('مريض'))) map.name = h;
+        else if (!map.mrn && (s.includes('ملف') || s.includes('mrn'))) map.mrn = h;
+        else if (!map.phone && (s.includes('جوال') || s.includes('هاتف'))) map.phone = h;
+        else if (!map.docs && (s.includes('مستند') || s.includes('مطلوب'))) map.docs = h;
+        else if (!map.status && (s.includes('حاله') || s.includes('وضع'))) map.status = h;
+        else if (!map.notes && (s.includes('ملاحظ') || s.includes('تعليق'))) map.notes = h;
+      });
+      // خيارات افتراضية في حال عدم التطابق
+      if (!map.name && headers[0]) map.name = headers[0];
+      if (!map.mrn && headers[1]) map.mrn = headers[1];
+      if (!map.docs && headers[2]) map.docs = headers[2];
+      if (!map.status && headers[3]) map.status = headers[3];
+      if (!map.phone && headers[4]) map.phone = headers[4];
+      if (!map.notes && headers[5]) map.notes = headers[5];
+      return map;
+    }
+
+    function updateStats() {
+      const total = records.length;
+      const done = records.filter(r => r.status === 'تم الإنجاز').length;
+      const pending = records.filter(r => r.status === 'تحت الإجراء').length;
+
+      document.getElementById('statTotal').innerText = total;
+      document.getElementById('statPending').innerText = pending;
+      document.getElementById('statDone').innerText = done;
+    }
+
+    function renderCards(list) {
+      const container = document.getElementById('cardsList');
+      container.innerHTML = '';
+
+      if (list.length === 0) {
+        document.getElementById('noDataState').classList.remove('hidden');
+        container.classList.add('hidden');
+        return;
+      }
+
+      document.getElementById('noDataState').classList.add('hidden');
+      container.classList.remove('hidden');
+
+      list.forEach(r => {
+        const isDone = r.status === 'تم الإنجاز';
+        const intlPhone = cleanSaudiPhone(r.phone);
+
+        const card = document.createElement('div');
+        card.className = "bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col gap-2.5 border-r-4 " + (isDone ? "border-r-emerald-500" : "border-r-amber-500");
+
+        card.innerHTML = `
+          <div class="flex items-start justify-between">
+            <div>
+              <h4 class="font-bold text-sm sm:text-base text-slate-900">${escapeHtml(r.name)}</h4>
+              <div class="text-xs text-slate-400 mt-0.5">
+                رقم الملف: <strong class="font-mono text-slate-600 ltr-text">${escapeHtml(r.mrn) || '—'}</strong>
+              </div>
+            </div>
+            <span class="text-[11px] font-bold px-2 py-0.5 rounded-full border ${isDone ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}">
+              ${r.status}
+            </span>
+          </div>
+
+          <div class="bg-slate-50 p-2.5 rounded-lg text-xs space-y-1">
+            <div><span class="font-bold text-slate-500">المطلوب:</span> <span class="text-slate-700">${escapeHtml(r.docs) || 'لا توجد متطلبات مسجلة'}</span></div>
+            ${r.notes ? `<div><span class="font-bold text-slate-500">ملاحظات:</span> <span class="text-slate-600">${escapeHtml(r.notes)}</span></div>` : ''}
+          </div>
+
+          <div class="flex items-center justify-between gap-2 pt-1 border-t border-slate-100">
+            <div class="text-xs font-mono text-slate-500 ltr-text">
+              ${intlPhone ? '<i class="fa-solid fa-phone text-[10px] text-slate-400"></i> +' + intlPhone : '<span class="text-slate-400">بدون جوال</span>'}
+            </div>
+            ${intlPhone ? `
+              <button onclick="sendWhatsAppBusiness('${intlPhone}', '${escapeHtml(r.name)}', '${escapeHtml(r.mrn)}', '${escapeHtml(r.docs)}')" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition active:scale-95 shadow-xs">
+                <i class="fa-brands fa-whatsapp text-sm"></i>
+                <span>واتس بزنس</span>
+              </button>
+            ` : `
+              <button disabled class="bg-slate-100 text-slate-400 text-xs font-bold px-3 py-1.5 rounded-lg cursor-not-allowed">
+                الواتساب غير متاح
+              </button>
+            `}
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function filterRequests() {
+      const q = document.getElementById('searchInput').value.trim().toLowerCase();
+      if (!q) {
+        renderCards(records);
+        return;
+      }
+      const filtered = records.filter(r =>
+        (r.name && r.name.toLowerCase().includes(q)) ||
+        (r.mrn && r.mrn.toLowerCase().includes(q)) ||
+        (r.phone && r.phone.includes(q))
+      );
+      renderCards(filtered);
+    }
+
+    // إرسال واتساب بزنس بالصيغة المعتمدة
+    function sendWhatsAppBusiness(phone, name, mrn, docs) {
+      const msg = `السلام عليكم ورحمة الله وبركاته\nأهلاً بك أخي/أختي: ${name || 'المريض'}\nرقم الملف الطبي: ${mrn || '—'}\n\nنرجو تزويدنا بالمستندات التالية لاستكمال إجراءات التأمين الطبي:\n${docs || 'المستندات المطلوبة'}\n\nشاكرين ومقدرين تعاونكم.\n— قسم التأمين الطبي | مدينة الملك سلمان الطبية (KSAMC)`;
+      const encoded = encodeURIComponent(msg);
+      const isAndroid = /Android/i.test(navigator.userAgent);
+
+      if (isAndroid) {
+        // تشغيل مباشر لحزمة واتساب بزنس على أندرويد
+        window.location.href = `intent://send?phone=${phone}&text=${encoded}#Intent;package=com.whatsapp.w4b;scheme=whatsapp;end`;
+        setTimeout(() => {
+          window.open(`https://wa.me/${phone}?text=${encoded}`, '_blank');
+        }, 700);
+      } else {
+        window.open(`https://wa.me/${phone}?text=${encoded}`, '_blank');
+      }
+    }
+
+    function cleanSaudiPhone(phone) {
+      if (!phone) return '';
+      let p = String(phone).replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[^0-9]/g, '');
+      if (p.startsWith('00966')) p = p.substring(5);
+      else if (p.startsWith('966')) p = p.substring(3);
+      else if (p.startsWith('05')) p = p.substring(1);
+      if (p.startsWith('5') && p.length === 9) return '966' + p;
+      return '';
+    }
+
+    function handleNewRequest(e) {
+      e.preventDefault();
+      const newRec = {
+        name: document.getElementById('mName').value.trim(),
+        mrn: document.getElementById('mMrn').value.trim(),
+        phone: document.getElementById('mPhone').value.trim(),
+        docs: document.getElementById('mDocs').value.trim(),
+        status: document.getElementById('mStatus').value,
+        notes: document.getElementById('mNotes').value.trim()
+      };
+
+      // حفظ محلي فوري
+      let localSaved = JSON.parse(localStorage.getItem('local_ksamc_records') || '[]');
+      localSaved.unshift(newRec);
+      localStorage.setItem('local_ksamc_records', JSON.stringify(localSaved));
+
+      records.unshift(newRec);
+      updateStats();
+      renderCards(records);
+      closeModal();
+      showToast('تمت إضافة الطلب إلى الشاشة بنجاح');
+    }
+
+    function openModal() {
+      document.getElementById('entryModal').classList.remove('hidden');
+      document.getElementById('mName').focus();
+    }
+
+    function closeModal() {
+      document.getElementById('entryModal').classList.add('hidden');
+      document.getElementById('newRequestForm').reset();
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.innerText = msg;
+      t.classList.remove('hidden');
+      setTimeout(() => t.classList.add('hidden'), 3500);
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+  </script>
+</body>
+</html>
